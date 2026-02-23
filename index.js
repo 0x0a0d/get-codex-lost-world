@@ -333,7 +333,35 @@ process.on('SIGTERM', () => { cleanup(1); process.exit(1); });
     )
   );
 
-  run('npm install --no-audit --no-fund', { cwd: BUILD_PROJECT, silent: true });
+  // Force x64 arch so Electron and native deps download x64 binaries,
+  // even when host runner is ARM64 (macos-latest = Apple Silicon).
+  run('npm_config_arch=x64 npm install --no-audit --no-fund', {
+    cwd: BUILD_PROJECT,
+    silent: true,
+  });
+
+  // Force-install x64 platform package for Codex CLI binaries.
+  // npm only installs optional deps matching host arch (arm64 on macos-latest),
+  // so we must explicitly install the x64 variant to get codex/rg binaries.
+  const codexPkg = JSON.parse(
+    fs.readFileSync(path.join(BUILD_PROJECT, 'node_modules/@openai/codex/package.json'), 'utf8')
+  );
+  const x64Alias = (codexPkg.optionalDependencies || {})['@openai/codex-darwin-x64'] || '';
+  const x64Spec = x64Alias.startsWith('npm:') ? x64Alias.slice(4) : `@openai/codex@latest`;
+  const x64Dir = path.join(BUILD_PROJECT, 'node_modules/@openai/codex-darwin-x64');
+  if (!fs.existsSync(x64Dir)) {
+    log('x64 codex platform package missing; installing explicitly');
+    run(
+      `npm install --no-audit --no-fund --no-save "${x64Spec}"`,
+      { cwd: BUILD_PROJECT, silent: true }
+    );
+    // npm may nest the package; ensure it lands at the expected path
+    if (!fs.existsSync(x64Dir)) {
+      const tarball = capture(`npm pack "${x64Spec}" --pack-destination .`, { cwd: BUILD_PROJECT });
+      fs.mkdirSync(x64Dir, { recursive: true });
+      run(`tar xzf "${tarball}" --strip-components=1 -C "${x64Dir}"`, { cwd: BUILD_PROJECT });
+    }
+  }
 
   // ------------------------------------------------------------------
   // Use Electron x64 app template as the destination runtime.
