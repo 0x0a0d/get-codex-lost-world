@@ -9,6 +9,10 @@
   "scripts": {
     "test": "node --test tests/ci/*.test.js tests/get-codex/*.test.js tests/docs/*.test.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0x0a0d/get-codex-mac-intel"
+  },
   "keywords": ["codex", "intel", "build", "mac"],
   "author": "0x0a0d",
   "license": "ISC"
