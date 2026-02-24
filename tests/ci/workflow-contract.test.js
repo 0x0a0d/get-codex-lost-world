@@ -111,7 +111,7 @@ test('workflow separates windows npm install with setup-node cache based on gene
   assert.match(content, /name:\s*Prepare windows build package\.json/);
   assert.match(content, /uses:\s*actions\/setup-node@v4/);
   assert.match(content, /cache:\s*'npm'/);
-  assert.match(content, /cache-dependency-path:\s*\$\{\{\s*steps\.buildpkg\.outputs\.package_json_path\s*\}\}/);
+  assert.match(content, /cache-dependency-path:\s*\.ci\/windows-build-\$\{\{ matrix\.arch \}\}\/package\.json/);
   assert.match(content, /name:\s*Install windows build dependencies/);
   assert.match(content, /npm install --prefix "\$env:BUILD_DIR" --no-audit --no-fund/);
   assert.match(content, /--project-dir "\$buildDir"/);

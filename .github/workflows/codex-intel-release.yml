@@ -283,7 +283,7 @@ jobs:
           if (!(Test-Path $metadataPath)) { throw "Missing payload metadata: $metadataPath" }
 
           $meta = Get-Content $metadataPath | ConvertFrom-Json
-          $buildDir = Join-Path $env:RUNNER_TEMP "windows-build-${{ matrix.arch }}"
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE ".ci\windows-build-${{ matrix.arch }}"
           New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
 
           $pkg = @{
@@ -315,7 +315,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: ${{ steps.buildpkg.outputs.package_json_path }}
+          cache-dependency-path: .ci/windows-build-${{ matrix.arch }}/package.json
 
       - name: Install windows build dependencies
         shell: pwsh
