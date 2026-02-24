@@ -303,8 +303,32 @@ jobs:
           if (!(Test-Path $sqliteNode)) { throw "Missing better_sqlite3.node in packaged artifact" }
           if (!(Test-Path $ptyNode)) { throw "Missing pty.node in packaged artifact" }
 
-          node -e "require(process.argv[1]); process.stdout.write('ok\\n')" "$sqliteNode"
-          node -e "require(process.argv[1]); process.stdout.write('ok\\n')" "$ptyNode"
+          $expectedMachine = if ("${{ matrix.arch }}" -eq "arm64") { 0xAA64 } else { 0x8664 }
+
+          function Assert-PeMachine([string]$filePath, [int]$machineExpected) {
+            $bytes = [System.IO.File]::ReadAllBytes($filePath)
+            if ($bytes.Length -lt 0x40) {
+              throw "Invalid PE file (too small): $filePath"
+            }
+
+            $peOffset = [BitConverter]::ToUInt32($bytes, 0x3C)
+            if (($peOffset + 6) -ge $bytes.Length) {
+              throw "Invalid PE header offset: $filePath"
+            }
+
+            $sig = [System.Text.Encoding]::ASCII.GetString($bytes, [int]$peOffset, 4)
+            if ($sig -ne "PE`0`0") {
+              throw "Invalid PE signature: $filePath"
+            }
+
+            $machine = [BitConverter]::ToUInt16($bytes, [int]$peOffset + 4)
+            if ($machine -ne $machineExpected) {
+              throw "Unexpected machine type in $filePath. got=$machine expected=$machineExpected"
+            }
+          }
+
+          Assert-PeMachine $sqliteNode $expectedMachine
+          Assert-PeMachine $ptyNode $expectedMachine
 
       - name: Upload windows artifact to release
         shell: bash

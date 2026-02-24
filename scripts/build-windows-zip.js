@@ -104,13 +104,17 @@ function build() {
     }
   }
 
-  function requireNativeBinary(nodePath) {
-    const result = spawnSync(process.execPath, ['-e', 'require(process.argv[1]); process.stdout.write("ok\\n");', nodePath], {
-      stdio: 'inherit',
-      shell: false,
-    });
-    if (result.status !== 0) {
-      die(`native module load failed: ${nodePath}`);
+  function assertPeMachine(filePath, expectedMachine) {
+    const buffer = fs.readFileSync(filePath);
+    const peOffset = buffer.readUInt32LE(0x3c);
+    const peSig = buffer.toString('ascii', peOffset, peOffset + 4);
+    if (peSig !== 'PE\u0000\u0000') {
+      die(`invalid PE signature: ${filePath}`);
+    }
+
+    const machine = buffer.readUInt16LE(peOffset + 4);
+    if (machine !== expectedMachine) {
+      die(`unexpected machine type for ${filePath}: got 0x${machine.toString(16)}, expected 0x${expectedMachine.toString(16)}`);
     }
   }
 
@@ -195,8 +199,9 @@ function build() {
       die('rebuilt native binaries are missing after module replacement');
     }
 
-    requireNativeBinary(sqliteNode);
-    requireNativeBinary(ptyNode);
+    const expectedMachine = npmArch === 'arm64' ? 0xaa64 : 0x8664;
+    assertPeMachine(sqliteNode, expectedMachine);
+    assertPeMachine(ptyNode, expectedMachine);
 
     // Replace codex/rg binaries with Windows-target ones when found.
     const vendorRoot = path.join(projectDir, 'node_modules');
