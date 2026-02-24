@@ -84,8 +84,34 @@ function build() {
 
   const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
   const electronVersion = String(metadata.electronVersion || '').trim();
+  const betterSqlite3Version = String(metadata.betterSqlite3Version || '').trim();
+  const nodePtyVersion = String(metadata.nodePtyVersion || '').trim();
   if (!electronVersion) {
     die('electronVersion missing in payload-metadata.json');
+  }
+  if (!betterSqlite3Version || !nodePtyVersion) {
+    die('native module versions missing in payload-metadata.json');
+  }
+
+  function runCommand(command, args, opts = {}) {
+    const result = spawnSync(command, args, {
+      stdio: 'inherit',
+      shell: true,
+      ...opts,
+    });
+    if (result.status !== 0) {
+      die(`command failed: ${command} ${args.join(' ')}`);
+    }
+  }
+
+  function requireNativeBinary(nodePath) {
+    const result = spawnSync(process.execPath, ['-e', 'require(process.argv[1]); process.stdout.write("ok\\n");', nodePath], {
+      stdio: 'inherit',
+      shell: false,
+    });
+    if (result.status !== 0) {
+      die(`native module load failed: ${nodePath}`);
+    }
   }
 
   const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), `codex-windows-${arch}-`));
@@ -103,13 +129,17 @@ function build() {
       version: '1.0.0',
       dependencies: {
         electron: electronVersion,
+        'better-sqlite3': betterSqlite3Version,
+        'node-pty': nodePtyVersion,
+        '@openai/codex': 'latest',
+      },
+      devDependencies: {
+        '@electron/rebuild': '3.7.2',
       },
     }, null, 2));
 
-    const install = spawnSync('npm', ['install', '--no-audit', '--no-fund'], {
+    runCommand('npm', ['install', '--no-audit', '--no-fund'], {
       cwd: projectDir,
-      stdio: 'inherit',
-      shell: true,
       env: {
         ...process.env,
         npm_config_platform: 'win32',
@@ -117,9 +147,19 @@ function build() {
       },
     });
 
-    if (install.status !== 0) {
-      die('failed to install electron runtime for windows packaging');
-    }
+    runCommand('npx', [
+      '--yes',
+      '@electron/rebuild',
+      '-f',
+      '-w',
+      'better-sqlite3,node-pty',
+      '--arch',
+      npmArch,
+      '--version',
+      electronVersion,
+      '-m',
+      projectDir,
+    ], { cwd: projectDir });
 
     const electronDist = path.join(projectDir, 'node_modules', 'electron', 'dist');
     if (!fs.existsSync(electronDist)) {
@@ -133,6 +173,57 @@ function build() {
       fs.rmSync(appResources, { recursive: true, force: true });
     }
     fs.cpSync(resourcesPath, appResources, { recursive: true });
+
+    const targetUnpacked = path.join(appResources, 'app.asar.unpacked');
+    if (!fs.existsSync(targetUnpacked)) {
+      die('target app.asar.unpacked not found in payload resources');
+    }
+
+    const srcBetterSqlite3 = path.join(projectDir, 'node_modules', 'better-sqlite3');
+    const srcNodePty = path.join(projectDir, 'node_modules', 'node-pty');
+    const dstBetterSqlite3 = path.join(targetUnpacked, 'node_modules', 'better-sqlite3');
+    const dstNodePty = path.join(targetUnpacked, 'node_modules', 'node-pty');
+
+    fs.rmSync(dstBetterSqlite3, { recursive: true, force: true });
+    fs.rmSync(dstNodePty, { recursive: true, force: true });
+    fs.cpSync(srcBetterSqlite3, dstBetterSqlite3, { recursive: true });
+    fs.cpSync(srcNodePty, dstNodePty, { recursive: true });
+
+    const sqliteNode = path.join(dstBetterSqlite3, 'build', 'Release', 'better_sqlite3.node');
+    const ptyNode = path.join(dstNodePty, 'build', 'Release', 'pty.node');
+    if (!fs.existsSync(sqliteNode) || !fs.existsSync(ptyNode)) {
+      die('rebuilt native binaries are missing after module replacement');
+    }
+
+    requireNativeBinary(sqliteNode);
+    requireNativeBinary(ptyNode);
+
+    // Replace codex/rg binaries with Windows-target ones when found.
+    const vendorRoot = path.join(projectDir, 'node_modules');
+    const walk = (dir, out = []) => {
+      if (!fs.existsSync(dir)) {
+        return out;
+      }
+      for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, item.name);
+        if (item.isDirectory()) {
+          walk(full, out);
+        } else {
+          out.push(full);
+        }
+      }
+      return out;
+    };
+    const files = walk(vendorRoot, []);
+    const codexExe = files.find((f) => /codex\\.exe$/i.test(f) && /win32/i.test(f));
+    const rgExe = files.find((f) => /rg\\.exe$/i.test(f) && /win32/i.test(f));
+    if (codexExe) {
+      fs.copyFileSync(codexExe, path.join(appResources, 'codex.exe'));
+      fs.copyFileSync(codexExe, path.join(targetUnpacked, 'codex.exe'));
+    }
+    if (rgExe) {
+      fs.copyFileSync(rgExe, path.join(appResources, 'rg.exe'));
+    }
 
     fs.writeFileSync(path.join(appDir, 'build-info.txt'), [
       'Codex Windows portable package',
