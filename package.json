@@ -1,6 +1,6 @@
 {
   "name": "get-codex-mac-intel",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI to download/build Codex Mac Intel DMG from upstream Codex.dmg and manage cache/sign workflows.",
   "main": "lib/get-codex/main.js",
   "bin": {
@@ -13,7 +13,12 @@
     "type": "git",
     "url": "https://github.com/0x0a0d/get-codex-mac-intel"
   },
-  "keywords": ["codex", "intel", "build", "mac"],
+  "keywords": [
+    "codex",
+    "intel",
+    "build",
+    "mac"
+  ],
   "author": "0x0a0d",
   "license": "ISC",
   "files": [
