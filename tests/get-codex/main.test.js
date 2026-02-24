@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
-const { runMain } = require('../../lib/get-codex/main');
+const { runMain, parseGithubRepoFromUrl, resolveGithubRepo } = require('../../lib/get-codex/main');
 
 
 test('cache mode logs version', async () => {
@@ -346,4 +346,24 @@ test('help mode prints usage and exits early', async () => {
 
   assert.equal(result.mode, 'help');
   assert.ok(logs[0].includes('Usage:'));
+});
+
+test('parseGithubRepoFromUrl supports common GitHub repository URL formats', () => {
+  assert.equal(
+    parseGithubRepoFromUrl('https://github.com/octocat/hello-world'),
+    'octocat/hello-world'
+  );
+  assert.equal(
+    parseGithubRepoFromUrl('https://github.com/octocat/hello-world.git'),
+    'octocat/hello-world'
+  );
+  assert.equal(
+    parseGithubRepoFromUrl('git@github.com:octocat/hello-world.git'),
+    'octocat/hello-world'
+  );
+  assert.equal(parseGithubRepoFromUrl('https://example.com/not-github/repo'), '');
+});
+
+test('resolveGithubRepo falls back to package.json repository URL', () => {
+  assert.equal(resolveGithubRepo(), '0x0a0d/get-codex-mac-intel');
 });
