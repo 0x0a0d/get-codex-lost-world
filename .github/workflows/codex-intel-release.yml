@@ -299,9 +299,15 @@ jobs:
 
           $sqliteNode = Join-Path $verifyDir "resources\app.asar.unpacked\node_modules\better-sqlite3\build\Release\better_sqlite3.node"
           $ptyNode = Join-Path $verifyDir "resources\app.asar.unpacked\node_modules\node-pty\build\Release\pty.node"
+          $codexExe = Join-Path $verifyDir "resources\codex.exe"
+          $rgExe = Join-Path $verifyDir "resources\rg.exe"
+          $mainExe = Join-Path $verifyDir "Codex.exe"
 
           if (!(Test-Path $sqliteNode)) { throw "Missing better_sqlite3.node in packaged artifact" }
           if (!(Test-Path $ptyNode)) { throw "Missing pty.node in packaged artifact" }
+          if (!(Test-Path $codexExe)) { throw "Missing resources/codex.exe in packaged artifact" }
+          if (!(Test-Path $rgExe)) { throw "Missing resources/rg.exe in packaged artifact" }
+          if (!(Test-Path $mainExe)) { throw "Missing Codex.exe launcher in packaged artifact" }
 
           $expectedMachine = if ("${{ matrix.arch }}" -eq "arm64") { 0xAA64 } else { 0x8664 }
 

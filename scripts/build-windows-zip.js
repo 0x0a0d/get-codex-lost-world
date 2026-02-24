@@ -172,6 +172,14 @@ function build() {
 
     fs.cpSync(electronDist, appDir, { recursive: true });
 
+    const electronExe = path.join(appDir, 'electron.exe');
+    const codexExePath = path.join(appDir, 'Codex.exe');
+    if (fs.existsSync(electronExe)) {
+      fs.copyFileSync(electronExe, codexExePath);
+    } else {
+      die('electron.exe not found in electron dist output');
+    }
+
     const appResources = path.join(appDir, 'resources');
     if (fs.existsSync(appResources)) {
       fs.rmSync(appResources, { recursive: true, force: true });
@@ -220,14 +228,18 @@ function build() {
       return out;
     };
     const files = walk(vendorRoot, []);
-    const codexExe = files.find((f) => /codex\\.exe$/i.test(f) && /win32/i.test(f));
-    const rgExe = files.find((f) => /rg\\.exe$/i.test(f) && /win32/i.test(f));
+    const codexExe = files.find((f) => /codex\.exe$/i.test(f) && /win32/i.test(f));
+    const rgExe = files.find((f) => /rg\.exe$/i.test(f) && /win32/i.test(f));
     if (codexExe) {
       fs.copyFileSync(codexExe, path.join(appResources, 'codex.exe'));
       fs.copyFileSync(codexExe, path.join(targetUnpacked, 'codex.exe'));
+    } else {
+      die('failed to locate windows codex.exe from installed dependencies');
     }
     if (rgExe) {
       fs.copyFileSync(rgExe, path.join(appResources, 'rg.exe'));
+    } else {
+      die('failed to locate windows rg.exe from installed dependencies');
     }
 
     fs.writeFileSync(path.join(appDir, 'build-info.txt'), [
