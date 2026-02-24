@@ -1,7 +1,7 @@
 {
   "name": "get-codex-mac-intel",
   "version": "1.0.3",
-  "description": "CLI to download/build Codex Mac Intel DMG from upstream Codex.dmg and manage cache/sign workflows.",
+  "description": "CLI to download/build Codex Mac Intel DMG and Windows ZIP artifacts from upstream Codex.dmg.",
   "main": "lib/get-codex/main.js",
   "bin": {
     "get-codex-mac-intel": "bin/get-codex-mac-intel.js"
@@ -17,7 +17,9 @@
     "codex",
     "intel",
     "build",
-    "mac"
+    "mac",
+    "windows",
+    "zip"
   ],
   "author": "0x0a0d",
   "license": "ISC",

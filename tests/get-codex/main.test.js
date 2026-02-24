@@ -213,6 +213,51 @@ test('cache mode prompts sign and yes triggers signer', async () => {
   assert.equal(signed[0], '/tmp/downloads/CodexIntelMac_1.2.3.dmg');
 });
 
+test('cache mode on windows target skips sign prompt', async () => {
+  let promptCount = 0;
+  let signCalls = 0;
+
+  const result = await runMain(['--cache', '--platform', 'windows', '--arch', 'x64', '--format', 'zip'], {
+    env: { HOME: '/home/tester' },
+    releaseApi: {
+      async getLatest() {
+        return {
+          tag_name: 'v1.2.3',
+          published_at: '2026-02-20T00:00:00Z',
+          body: 'Release note body',
+          assets: [
+            { name: 'CodexWindows_x64_1.2.3.zip', browser_download_url: 'https://example.com/CodexWindows_x64_1.2.3.zip' },
+          ],
+        };
+      },
+    },
+    io: {
+      log() {},
+      async prompt(question) {
+        promptCount += 1;
+        if (question.includes('Download location')) {
+          return '/tmp/downloads';
+        }
+        throw new Error('sign prompt should not run for windows target');
+      },
+    },
+    downloader: {
+      async download(url, location, filename) {
+        return path.join(location, filename);
+      },
+    },
+    signer: {
+      async sign() {
+        signCalls += 1;
+      },
+    },
+  });
+
+  assert.equal(promptCount, 1);
+  assert.equal(signCalls, 0);
+  assert.equal(result.signed, false);
+});
+
 test('sign mode calls signer with provided path', async () => {
   const signed = [];
 
@@ -371,6 +416,37 @@ test('build mode honors --workdir for download and builder output', async () => 
   assert.equal(builderCalls.length, 1);
   assert.equal(builderCalls[0].location, '/tmp/build-out');
   assert.equal(builderCalls[0].outputName, 'CodexIntelMac_2.0.0.dmg');
+});
+
+test('build mode supports windows output naming and target propagation', async () => {
+  const builderCalls = [];
+
+  const result = await runMain(['--workdir', '/tmp/build-out', '--platform', 'windows', '--arch', 'arm64', '--format', 'zip'], {
+    env: { PWD: '/tmp/current-dir' },
+    io: { log() {}, async prompt() { return ''; } },
+    downloader: {
+      async download(url, location, filename) {
+        return path.join(location, filename);
+      },
+    },
+    signer: { async sign() {} },
+    releaseApi: { async getLatest() { return { tag_name: 'v2.0.0' }; } },
+    builder: {
+      async run(payload) {
+        builderCalls.push(payload);
+      },
+    },
+    versionResolver: {
+      async resolveFromDmg() {
+        return '2.0.0';
+      },
+    },
+  });
+
+  assert.equal(builderCalls.length, 1);
+  assert.equal(builderCalls[0].outputName, 'CodexWindows_arm64_2.0.0.zip');
+  assert.equal(builderCalls[0].target.platform, 'windows');
+  assert.equal(result.outputName, 'CodexWindows_arm64_2.0.0.zip');
 });
 
 test('help mode prints usage and exits early', async () => {

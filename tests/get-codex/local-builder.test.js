@@ -69,3 +69,32 @@ test('local builder executes node with expected args', async () => {
   });
   assert.equal(result.outputPath, path.join('/tmp/output', 'CodexIntelMac_1.2.3.dmg'));
 });
+
+test('local builder selects windows entrypoint when target platform is windows', async () => {
+  const spawnCalls = [];
+  const builder = createLocalBuilder({
+    builderEntry: '/tmp/mac-builder.js',
+    windowsBuilderEntry: '/tmp/windows-builder.js',
+    fsApi: {
+      existsSync(filePath) {
+        return filePath === '/tmp/windows-builder.js';
+      },
+      mkdirSync() {},
+    },
+    spawnSync(execPath, args) {
+      spawnCalls.push({ execPath, args });
+      return { status: 0 };
+    },
+    nodeExecPath: '/usr/bin/node',
+  });
+
+  await builder.run({
+    location: '/tmp/output',
+    downloadedPath: '/tmp/output/Codex.dmg',
+    outputName: 'CodexWindows_x64_1.2.3.zip',
+    target: { platform: 'windows', arch: 'x64', format: 'zip' },
+  });
+
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].args[0], '/tmp/windows-builder.js');
+});

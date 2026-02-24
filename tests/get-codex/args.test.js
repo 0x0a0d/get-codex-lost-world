@@ -33,6 +33,21 @@ test('parseArgs accepts --workdir/-w', () => {
   });
 });
 
+test('parseArgs accepts --platform/--arch/--format', () => {
+  assert.deepEqual(parseArgs(['--platform', 'windows', '--arch', 'arm64', '--format', 'zip']), {
+    mode: 'build',
+    platform: 'windows',
+    arch: 'arm64',
+    format: 'zip',
+  });
+});
+
+test('parseArgs throws when --platform/--arch/--format value is missing', () => {
+  assert.throws(() => parseArgs(['--platform']), /requires a value/);
+  assert.throws(() => parseArgs(['--arch']), /requires a value/);
+  assert.throws(() => parseArgs(['--format']), /requires a value/);
+});
+
 test('parseArgs throws conflict error on mixed mode flags', () => {
   assert.throws(() => parseArgs(['--cache', '--build']), /conflict/);
   assert.throws(() => parseArgs(['-s', '/tmp/a', '--cache']), /conflict/);

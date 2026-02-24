@@ -21,6 +21,11 @@ permissions:
 jobs:
   codex-intel-release:
     runs-on: macos-latest
+    outputs:
+      should_build: ${{ steps.decision.outputs.should_build }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      version: ${{ steps.meta.outputs.version }}
+      safe_version: ${{ steps.meta.outputs.safe_version }}
     env:
       SOURCE_URL: https://persistent.oaistatic.com/codex-app-prod/Codex.dmg
     steps:
@@ -130,6 +135,25 @@ jobs:
           set -euo pipefail
           node scripts/build-intel-dmg.js --output "$ARTIFACT_PATH" "$SOURCE_DMG_PATH"
 
+      - name: Extract Codex payload metadata for windows jobs
+        if: ${{ steps.decision.outputs.should_build == 'true' }}
+        shell: bash
+        env:
+          SOURCE_DMG_PATH: ${{ steps.download.outputs.source_dmg_path }}
+        run: |
+          set -euo pipefail
+          payload_dir="$RUNNER_TEMP/codex-payload"
+          mkdir -p "$payload_dir"
+          node scripts/ci/extract-codex-payload.js --source "$SOURCE_DMG_PATH" --output-dir "$payload_dir"
+
+      - name: Upload payload metadata artifact
+        if: ${{ steps.decision.outputs.should_build == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-payload-metadata
+          path: ${{ runner.temp }}/codex-payload/payload-metadata.json
+          if-no-files-found: error
+
       - name: Create release notes
         if: ${{ steps.decision.outputs.should_build == 'true' }}
         id: notes
@@ -228,3 +252,52 @@ jobs:
         shell: bash
         run: |
           echo "No update detected; skipping build and release."
+
+  codex-windows-release:
+    runs-on: windows-latest
+    needs:
+      - codex-intel-release
+    if: ${{ needs.codex-intel-release.outputs.should_build == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    env:
+      SOURCE_URL: https://persistent.oaistatic.com/codex-app-prod/Codex.dmg
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download payload metadata artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-payload-metadata
+          path: ${{ runner.temp }}/codex-payload
+
+      - name: Download Codex.dmg
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "$env:SOURCE_URL" -OutFile "Codex.dmg"
+
+      - name: Build Windows portable zip
+        id: winmeta
+        shell: pwsh
+        env:
+          SAFE_VERSION: ${{ needs.codex-intel-release.outputs.safe_version }}
+        run: |
+          $artifactName = "CodexWindows_${{ matrix.arch }}_${env:SAFE_VERSION}.zip"
+          $artifactPath = Join-Path $env:RUNNER_TEMP $artifactName
+          node scripts/build-windows-zip.js --arch "${{ matrix.arch }}" --output "$artifactPath" "Codex.dmg"
+          "artifact_name=$artifactName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "artifact_path=$artifactPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload windows artifact to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.codex-intel-release.outputs.release_tag }}
+          ARTIFACT_PATH: ${{ steps.winmeta.outputs.artifact_path }}
+          ARTIFACT_NAME: ${{ steps.winmeta.outputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "$ARTIFACT_PATH#$ARTIFACT_NAME" --clobber

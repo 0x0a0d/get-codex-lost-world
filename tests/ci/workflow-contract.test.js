@@ -54,6 +54,7 @@ test('workflow uses macOS runner and contents: write permission', () => {
   const content = readWorkflow();
 
   assert.match(content, /runs-on:\s*macos-/i);
+  assert.match(content, /runs-on:\s*windows-latest/i);
   assert.match(content, /permissions:\s*[\s\S]*contents:\s*write/);
 });
 
@@ -85,6 +86,24 @@ test('workflow builds intel dmg and names output from VERSION', () => {
   assert.match(content, /PlistBuddy[\s\S]*CFBundleShortVersionString/);
   assert.match(content, /artifact_name="CodexIntelMac_\$\{safe_version\}\.dmg"/);
   assert.match(content, /node\s+scripts\/build-intel-dmg\.js\s+--output\s+"\$ARTIFACT_PATH"\s+"\$SOURCE_DMG_PATH"/);
+});
+
+test('workflow defines windows matrix for x64 and arm64 portable zip', () => {
+  const content = readWorkflow();
+
+  assert.match(content, /codex-windows-release:/);
+  assert.match(content, /matrix:\s*[\s\S]*arch:\s*\[x64, arm64\]/);
+  assert.match(content, /scripts\/build-windows-zip\.js/);
+  assert.match(content, /CodexWindows_\$\{\{ matrix\.arch \}\}_\$\{env:SAFE_VERSION\}\.zip/);
+});
+
+test('workflow uploads and downloads payload metadata artifact between mac and windows jobs', () => {
+  const content = readWorkflow();
+
+  assert.match(content, /scripts\/ci\/extract-codex-payload\.js/);
+  assert.match(content, /uses:\s*actions\/upload-artifact@v4/);
+  assert.match(content, /name:\s*codex-payload-metadata/);
+  assert.match(content, /uses:\s*actions\/download-artifact@v4/);
 });
 
 test('workflow updates ci-cache state with required fields', () => {
