@@ -14,7 +14,7 @@ function die(message) {
 function parseArgs(argv = process.argv.slice(2)) {
   let outputPath = '';
   let arch = process.env.BUILD_ARCH || 'x64';
-  const positional = [];
+  let payloadDir = '';
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -38,49 +38,114 @@ function parseArgs(argv = process.argv.slice(2)) {
       continue;
     }
 
+    if (arg === '--payload-dir') {
+      const candidate = argv[i + 1];
+      if (!candidate || candidate.startsWith('-')) {
+        die('--payload-dir requires a path');
+      }
+      payloadDir = candidate;
+      i += 1;
+      continue;
+    }
+
     if (arg.startsWith('-')) {
       die(`Unknown option: ${arg}`);
     }
-
-    positional.push(arg);
   }
 
   if (!outputPath) {
     die('--output is required');
   }
 
-  if (positional.length !== 1) {
-    die('source Codex.dmg path is required');
+  if (!payloadDir) {
+    die('--payload-dir is required');
   }
 
   return {
     outputPath: path.resolve(outputPath),
-    sourceDmgPath: path.resolve(positional[0]),
+    payloadDir: path.resolve(payloadDir),
     arch: String(arch).trim().toLowerCase(),
   };
 }
 
 function build() {
-  const { outputPath, sourceDmgPath, arch } = parseArgs();
+  const { outputPath, payloadDir, arch } = parseArgs();
   const outputDir = path.dirname(outputPath);
   fs.mkdirSync(outputDir, { recursive: true });
 
+  const metadataPath = path.join(payloadDir, 'payload-metadata.json');
+  const resourcesPath = path.join(payloadDir, 'payload', 'Resources');
+  if (!fs.existsSync(metadataPath)) {
+    die(`payload metadata not found: ${metadataPath}`);
+  }
+  if (!fs.existsSync(resourcesPath)) {
+    die(`payload resources not found: ${resourcesPath}`);
+  }
+
+  const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  const electronVersion = String(metadata.electronVersion || '').trim();
+  if (!electronVersion) {
+    die('electronVersion missing in payload-metadata.json');
+  }
+
   const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), `codex-windows-${arch}-`));
   try {
-    const payloadDir = path.join(stagingDir, 'payload');
-    fs.mkdirSync(payloadDir, { recursive: true });
+    const projectDir = path.join(stagingDir, 'project');
+    const appDir = path.join(stagingDir, 'Codex');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.mkdirSync(appDir, { recursive: true });
 
-    // Placeholder payload for deterministic zip output in CI scaffolding.
-    fs.writeFileSync(path.join(payloadDir, 'README.txt'), [
-      'Codex Windows portable package (build scaffold).',
+    const npmArch = arch === 'arm64' ? 'arm64' : 'x64';
+
+    fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({
+      name: 'codex-windows-portable-build',
+      private: true,
+      version: '1.0.0',
+      dependencies: {
+        electron: electronVersion,
+      },
+    }, null, 2));
+
+    const install = spawnSync('npm', ['install', '--no-audit', '--no-fund'], {
+      cwd: projectDir,
+      stdio: 'inherit',
+      shell: true,
+      env: {
+        ...process.env,
+        npm_config_platform: 'win32',
+        npm_config_arch: npmArch,
+      },
+    });
+
+    if (install.status !== 0) {
+      die('failed to install electron runtime for windows packaging');
+    }
+
+    const electronDist = path.join(projectDir, 'node_modules', 'electron', 'dist');
+    if (!fs.existsSync(electronDist)) {
+      die('electron dist folder not found after npm install');
+    }
+
+    fs.cpSync(electronDist, appDir, { recursive: true });
+
+    const appResources = path.join(appDir, 'resources');
+    if (fs.existsSync(appResources)) {
+      fs.rmSync(appResources, { recursive: true, force: true });
+    }
+    fs.cpSync(resourcesPath, appResources, { recursive: true });
+
+    fs.writeFileSync(path.join(appDir, 'build-info.txt'), [
+      'Codex Windows portable package',
       `arch=${arch}`,
-      `source=${sourceDmgPath}`,
+      `version=${metadata.version || ''}`,
+      `electron=${electronVersion}`,
+      `generated=${new Date().toISOString()}`,
     ].join('\n'));
 
     const result = spawnSync('powershell', [
       '-NoProfile',
       '-Command',
-      `Compress-Archive -Path "${payloadDir}\\*" -DestinationPath "${outputPath}" -Force`,
+      `Compress-Archive -Path "${appDir}\\*" -DestinationPath "${outputPath}" -Force`,
     ], { stdio: 'inherit' });
 
     if (result.status !== 0) {
