@@ -43,21 +43,90 @@ function parseArgs(argv = process.argv.slice(2)) {
   };
 }
 
+function runCommand(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: 'pipe',
+    ...options,
+  });
+
+  if (result.status !== 0) {
+    const stderr = result.stderr ? result.stderr.toString().trim() : '';
+    fail(`${command} failed${stderr ? `: ${stderr}` : ''}`);
+  }
+
+  return result.stdout ? result.stdout.toString().trim() : '';
+}
+
+function readPlistValue(infoPlistPath, key) {
+  const result = spawnSync('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, infoPlistPath], { stdio: 'pipe' });
+  if (result.status !== 0) {
+    return '';
+  }
+  return result.stdout.toString().trim();
+}
+
+function resolveSourceIconPath(resourcesDir) {
+  const iconCandidates = fs.readdirSync(resourcesDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.icns$/i.test(entry.name))
+    .map((entry) => path.join(resourcesDir, entry.name));
+
+  if (iconCandidates.length === 0) {
+    return '';
+  }
+
+  const preferredIcon = iconCandidates.find((filePath) => /codex|appicon|icon/i.test(path.basename(filePath)));
+  return preferredIcon || iconCandidates[0];
+}
+
+function extractWindowsIconAssets(resourcesDir, payloadRoot) {
+  const sourceIconPath = resolveSourceIconPath(resourcesDir);
+  if (!sourceIconPath) {
+    return { pngPath: '', icoPath: '' };
+  }
+
+  const pngPath = path.join(payloadRoot, 'codex-icon.png');
+  const pngResult = spawnSync('sips', ['-s', 'format', 'png', sourceIconPath, '--out', pngPath], { stdio: 'pipe' });
+  if (pngResult.status !== 0 || !fs.existsSync(pngPath)) {
+    return { pngPath: '', icoPath: '' };
+  }
+
+  const icoPath = path.join(payloadRoot, 'codex-icon.ico');
+  const icoResult = spawnSync('bash', ['-lc', `npx --yes png-to-ico "${pngPath}" > "${icoPath}"`], { stdio: 'pipe' });
+  const hasIco = icoResult.status === 0 && fs.existsSync(icoPath);
+
+  return {
+    pngPath,
+    icoPath: hasIco ? icoPath : '',
+  };
+}
+
+function extractModuleVersionFromAsar(asarPath, moduleName, metadataDir) {
+  const tempPackagePath = path.join(metadataDir, 'package.json');
+  const extractedPackagePath = path.join(metadataDir, `${moduleName}.package.json`);
+
+  runCommand('npx', ['--yes', '@electron/asar', 'extract-file', asarPath, `node_modules/${moduleName}/package.json`], {
+    cwd: metadataDir,
+  });
+
+  if (!fs.existsSync(tempPackagePath)) {
+    return '';
+  }
+
+  fs.renameSync(tempPackagePath, extractedPackagePath);
+  const packageJson = JSON.parse(fs.readFileSync(extractedPackagePath, 'utf8'));
+  return String(packageJson.version || '').trim();
+}
+
+function toMetadataRelativePath(baseDir, absolutePath) {
+  if (!absolutePath) {
+    return '';
+  }
+  return path.relative(baseDir, absolutePath).split(path.sep).join('/');
+}
+
 function run() {
   const { sourceDmgPath, outputDir } = parseArgs();
   fs.mkdirSync(outputDir, { recursive: true });
-
-  function runCommand(cmd, args, opts = {}) {
-    const result = spawnSync(cmd, args, {
-      stdio: 'pipe',
-      ...opts,
-    });
-    if (result.status !== 0) {
-      const stderr = result.stderr ? result.stderr.toString().trim() : '';
-      fail(`${cmd} failed${stderr ? `: ${stderr}` : ''}`);
-    }
-    return result.stdout ? result.stdout.toString().trim() : '';
-  }
 
   const mountBase = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-payload-'));
   const mountPoint = path.join(mountBase, 'mount');
@@ -83,7 +152,6 @@ function run() {
       codexApp,
       'Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/Info.plist'
     );
-
     const resourcesSrc = path.join(codexApp, 'Contents/Resources');
     if (!fs.existsSync(resourcesSrc)) {
       fail('Resources directory was not found in mounted Codex.app');
@@ -94,49 +162,32 @@ function run() {
     fs.mkdirSync(payloadRoot, { recursive: true });
     fs.cpSync(resourcesSrc, resourcesDst, { recursive: true });
 
-    let version = '';
-    const shortVersion = spawnSync('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', infoPlist], { stdio: 'pipe' });
-    if (shortVersion.status === 0) {
-      version = shortVersion.stdout.toString().trim();
-    }
-    if (!version) {
-      const fallbackVersion = spawnSync('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleVersion', infoPlist], { stdio: 'pipe' });
-      version = fallbackVersion.status === 0 ? fallbackVersion.stdout.toString().trim() : '';
+    const version = readPlistValue(infoPlist, 'CFBundleShortVersionString') || readPlistValue(infoPlist, 'CFBundleVersion');
+    const electronVersion = readPlistValue(frameworkInfo, 'CFBundleVersion');
+    if (!electronVersion) {
+      fail('CFBundleVersion is missing from Electron Framework Info.plist');
     }
 
-    const electronVersion = runCommand('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleVersion', frameworkInfo]);
+    const asarPath = path.join(resourcesSrc, 'app.asar');
+    const metadataDir = path.join(outputDir, 'asar-meta');
+    fs.mkdirSync(metadataDir, { recursive: true });
 
-    const asarFile = path.join(resourcesSrc, 'app.asar');
-    const asarMetaDir = path.join(outputDir, 'asar-meta');
-    fs.mkdirSync(asarMetaDir, { recursive: true });
+    const betterSqlite3Version = extractModuleVersionFromAsar(asarPath, 'better-sqlite3', metadataDir);
+    const nodePtyVersion = extractModuleVersionFromAsar(asarPath, 'node-pty', metadataDir);
+    const iconAssets = extractWindowsIconAssets(resourcesSrc, payloadRoot);
 
-    runCommand('npx', ['--yes', '@electron/asar', 'extract-file', asarFile, 'node_modules/better-sqlite3/package.json'], { cwd: asarMetaDir });
-    if (fs.existsSync(path.join(asarMetaDir, 'package.json'))) {
-      fs.renameSync(path.join(asarMetaDir, 'package.json'), path.join(asarMetaDir, 'better-sqlite3.package.json'));
-    }
-
-    runCommand('npx', ['--yes', '@electron/asar', 'extract-file', asarFile, 'node_modules/node-pty/package.json'], { cwd: asarMetaDir });
-    if (fs.existsSync(path.join(asarMetaDir, 'package.json'))) {
-      fs.renameSync(path.join(asarMetaDir, 'package.json'), path.join(asarMetaDir, 'node-pty.package.json'));
-    }
-
-    const bsPkgPath = path.join(asarMetaDir, 'better-sqlite3.package.json');
-    const npPkgPath = path.join(asarMetaDir, 'node-pty.package.json');
-    const betterSqlite3Version = fs.existsSync(bsPkgPath)
-      ? JSON.parse(fs.readFileSync(bsPkgPath, 'utf8')).version || ''
-      : '';
-    const nodePtyVersion = fs.existsSync(npPkgPath)
-      ? JSON.parse(fs.readFileSync(npPkgPath, 'utf8')).version || ''
-      : '';
-
-    fs.writeFileSync(path.join(outputDir, 'payload-metadata.json'), JSON.stringify({
+    const metadata = {
       sourceDmgPath,
       version,
       electronVersion,
       betterSqlite3Version,
       nodePtyVersion,
+      windowsIconPngPath: toMetadataRelativePath(outputDir, iconAssets.pngPath),
+      windowsIconIcoPath: toMetadataRelativePath(outputDir, iconAssets.icoPath),
       extractedAt: new Date().toISOString(),
-    }, null, 2));
+    };
+
+    fs.writeFileSync(path.join(outputDir, 'payload-metadata.json'), JSON.stringify(metadata, null, 2));
   } finally {
     spawnSync('hdiutil', ['detach', mountPoint], { stdio: 'pipe' });
     fs.rmSync(mountBase, { recursive: true, force: true });

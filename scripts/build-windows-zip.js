@@ -117,6 +117,10 @@ function build() {
   const electronVersion = String(metadata.electronVersion || '').trim();
   const betterSqlite3Version = String(metadata.betterSqlite3Version || '').trim();
   const nodePtyVersion = String(metadata.nodePtyVersion || '').trim();
+  const windowsIconIcoPath = String(metadata.windowsIconIcoPath || '').trim();
+  const payloadIconPath = windowsIconIcoPath
+    ? path.join(payloadDir, windowsIconIcoPath.split('/').join(path.sep))
+    : '';
   if (!electronVersion) {
     die('electronVersion missing in payload-metadata.json');
   }
@@ -258,7 +262,9 @@ function build() {
       die('failed to locate windows rg.exe from installed dependencies');
     }
 
-    const iconPath = icoCandidates.length > 0 ? icoCandidates[0] : '';
+    const iconPath = payloadIconPath && fs.existsSync(payloadIconPath)
+      ? payloadIconPath
+      : (icoCandidates.length > 0 ? icoCandidates[0] : '');
     if (iconPath) {
       runCommand('npx', ['--yes', 'rcedit', codexExePath, '--set-icon', iconPath], { cwd: projectDir });
     }
