@@ -3,3 +3,4 @@ node_modules
 dist
 .tmp
 log.txt
+.DS_Store

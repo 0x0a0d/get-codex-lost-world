@@ -11,6 +11,10 @@ function die(message) {
   process.exit(1);
 }
 
+function warn(message) {
+  process.stderr.write(`Warning: ${message}\n`);
+}
+
 function parseArgs(argv = process.argv.slice(2)) {
   let outputPath = '';
   let arch = process.env.BUILD_ARCH || 'x64';
@@ -266,7 +270,23 @@ function build() {
       ? payloadIconPath
       : (icoCandidates.length > 0 ? icoCandidates[0] : '');
     if (iconPath) {
-      runCommand('npx', ['--yes', 'rcedit', codexExePath, '--set-icon', iconPath], { cwd: projectDir });
+      const rceditExecutablePath = path.join(
+        projectDir,
+        'node_modules',
+        '.bin',
+        process.platform === 'win32' ? 'rcedit.cmd' : 'rcedit'
+      );
+      const rceditCommand = fs.existsSync(rceditExecutablePath)
+        ? rceditExecutablePath
+        : 'rcedit';
+      const iconResult = spawnSync(
+        rceditCommand,
+        [codexExePath, '--set-icon', iconPath],
+        { cwd: projectDir, stdio: 'inherit', shell: true }
+      );
+      if (iconResult.error || iconResult.status !== 0) {
+        warn(`Unable to set executable icon with ${rceditCommand}. Continuing without patched exe icon.`);
+      }
     }
 
     fs.writeFileSync(path.join(appDir, 'build-info.txt'), [
