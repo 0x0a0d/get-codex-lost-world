@@ -1,6 +1,6 @@
 # Get Codex Lost World - Codex for Desktop
 
-Bring Codex to **Intel Mac** and **Windows** with a simple CLI workflow for build, download, and packaging. 🚀
+Bring Codex to **Intel Mac** with a simple CLI workflow for build, download, and packaging. 🚀
 
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/0x0a0d/get-codex-lost-world)
 [![Version](https://img.shields.io/badge/version-1.0.3-blue)](https://github.com/0x0a0d/get-codex-lost-world)
@@ -14,15 +14,16 @@ Bring Codex to **Intel Mac** and **Windows** with a simple CLI workflow for buil
 **Get Codex** is a desktop-focused toolchain that helps users on platforms often left behind by official releases:
 
 - macOS Intel (`.dmg`)
-- Windows x64 / arm64 (`.zip`)
 
 It automates artifact resolution, local build flow, and optional signing steps.
 
+> [!NOTE]
+> Windows support in this repository was removed because OpenAI now provides an official Codex app for Windows via Microsoft Store: https://apps.microsoft.com/detail/9plm9xgg6vks?hl=en-US&gl=EG
+
 ## Features
 
-- ⚡ Build mode for Intel Mac and Windows targets
+- ⚡ Build mode for Intel Mac target
 - 📦 Cache/download mode for latest release artifacts
-- 🪟 Windows ZIP output (x64, arm64)
 - 🍎 macOS Intel DMG output
 - 🔐 Optional signing flow for macOS artifacts
 - 🧩 Simple CLI flags for platform, arch, format, and workdir
@@ -32,7 +33,7 @@ It automates artifact resolution, local build flow, and optional signing steps.
 - **Runtime:** Node.js
 - **Language:** JavaScript (CommonJS)
 - **Testing:** Node.js built-in test runner (`node --test`)
-- **Packaging Scripts:** Custom Node scripts for macOS/Windows build artifacts
+- **Packaging Scripts:** Custom Node scripts for macOS build artifacts
 
 ## Installation
 
@@ -69,16 +70,10 @@ npx get-codex-lost-world
 npx get-codex-lost-world --build --workdir /absolute/path/to/workdir
 ```
 
-### Build for Windows arm64 ZIP
-
-```bash
-npx get-codex-lost-world --build --platform windows --arch arm64 --format zip --workdir /absolute/path/to/workdir
-```
-
 ### Cache/download mode
 
 ```bash
-npx get-codex-lost-world --cache --platform windows --arch x64 --format zip
+npx get-codex-lost-world --cache --platform mac --arch x64 --format dmg
 ```
 
 ### Sign mode
